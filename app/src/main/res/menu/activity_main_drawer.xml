@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:showIn="navigation_view">
+
+        <item
+            android:id="@+id/bt_connect"
+            android:icon="@drawable/menu_connect"
+            android:title="Connect" />
+        <item
+            android:id="@+id/bt_disconnect"
+            android:icon="@drawable/menu_disconnect"
+            android:title="Disconnect" />
+        <item
+            android:id="@+id/record"
+            android:icon="@drawable/menu_record"
+            android:title="Record" />
+        <item
+            android:id="@+id/stoprecord"
+            android:icon="@drawable/menu_stop"
+            android:title="Stop Record" />
+
+        <item
+            android:id="@+id/name_edit"
+            android:icon="@drawable/menu_edit"
+            android:title="Edit File Name" />
+
+        <item
+            android:id="@+id/process"
+            android:icon="@drawable/menu_process"
+            android:title="Process Data" />
+
+        <item
+            android:id="@+id/hide"
+            android:icon="@drawable/menu_hide_qt"
+            android:title="QT" />
+
+</menu>

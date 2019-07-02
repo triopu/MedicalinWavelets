@@ -1,1 +1,2 @@
-MedicalinWavelets
+# Medicalin
+Skripsi
