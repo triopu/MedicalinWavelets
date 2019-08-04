@@ -31,8 +31,14 @@
             android:title="Process Data" />
 
         <item
-            android:id="@+id/hide"
-            android:icon="@drawable/menu_hide_qt"
-            android:title="QT" />
+            android:id="@+id/open"
+            android:icon="@drawable/menu_folder_open"
+            android:title="Open File" />
+
+        <item
+            android:id="@+id/variableinput"
+            android:icon="@drawable/menu_varinput"
+            android:title="Input Variable" />
+
 
 </menu>

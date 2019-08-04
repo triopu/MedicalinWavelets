@@ -18,7 +18,7 @@ public class NameDialog extends AppCompatDialogFragment {
     public Dialog onCreateDialog(Bundle savedInstanceState) {
         AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
         LayoutInflater inflater = getActivity().getLayoutInflater();
-        View view = inflater.inflate(R.layout.layout_name_dialog, null);
+        View view = inflater.inflate(R.layout.layout_dialog, null);
         builder.setView(view)
                 .setTitle("File Name")
                 .setNegativeButton("CANCEL", new DialogInterface.OnClickListener() {
@@ -34,7 +34,7 @@ public class NameDialog extends AppCompatDialogFragment {
                         nameDialogListener.applyText(namefile);
                     }
                 });
-        editTextName = view.findViewById(R.id.edit_filename);
+        editTextName = view.findViewById(R.id.edit_input);
         return builder.create();
     }
 

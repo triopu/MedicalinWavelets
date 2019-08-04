@@ -5,7 +5,7 @@ import java.util.List;
 
 public class RemoveConsecutiveR {
     List<Integer> irs;
-    public RemoveConsecutiveR(List<Integer> ecg, List<Integer> ir){
+    public RemoveConsecutiveR(List<Integer> ecg, List<Integer> ir, int krr){
         int irLength = ir.size();
         irs = new ArrayList<Integer>();
         if (irLength < 2){
@@ -14,7 +14,7 @@ public class RemoveConsecutiveR {
             int i = 1;
             while(true){
                 if(i>irLength - 1) break;
-                if(ir.get(i) - ir.get(i-1) < 36){
+                if(ir.get(i) - ir.get(i-1) < krr){
                     irLength = irLength-1;
                     if(ecg.get(ir.get(i))>ecg.get(ir.get(i-1))){
                         ir.remove(i-1);

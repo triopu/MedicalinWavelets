@@ -6,7 +6,7 @@ import java.util.List;
 public class SearchBack {
     private RemoveConsecutiveR removeConsecutiveR;
     List<Integer> irsb = new ArrayList<Integer>();
-    public SearchBack(List<Integer> ecg, List<Double> d1, List<Integer> ir, double thr){
+    public SearchBack(List<Integer> ecg, List<Double> d1, List<Integer> ir, double thr, int krr){
         int lengthR = ir.size();
         if(lengthR < 2){
             System.out.println("Minimum number of R is 2");
@@ -27,7 +27,7 @@ public class SearchBack {
                         System.out.println(ir.get(i-1)+"//"+ir.get(i));
                         i =i+1;
                     }else{
-                        removeConsecutiveR = new RemoveConsecutiveR(ecg,ir);
+                        removeConsecutiveR = new RemoveConsecutiveR(ecg,ir,krr);
                         irt = new ArrayList<Integer>();
                         irt = removeConsecutiveR.getIrs();
                         irsb = new ArrayList<Integer>();

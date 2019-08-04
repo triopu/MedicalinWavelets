@@ -1,6 +1,7 @@
 package medicalin.ekg;
 
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattService;
 import android.content.BroadcastReceiver;
@@ -14,7 +15,9 @@ import android.graphics.Color;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.support.design.widget.NavigationView;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
@@ -33,13 +36,17 @@ import com.jjoe64.graphview.GridLabelRenderer;
 import com.jjoe64.graphview.series.DataPoint;
 import com.jjoe64.graphview.series.LineGraphSeries;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Main extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener, NameDialog.NameDialogListener{
+public class Main extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener, NameDialog.NameDialogListener, VarDialog.VarDialogListener{
     private final static String TAG = Main.class.getSimpleName();
 
     public static final String EXTRAS_DEVICE_NAME = "DEVICE_NAME";
@@ -55,7 +62,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
     private LineGraphSeries<DataPoint> ecgGraph;
     private double graph2LastXValue = 5d;
 
-    private boolean autoScrollX = false;
+    private boolean autoScrollX = true;
     private int xView = 1000;
     private double minX,maxX,minY,maxY;
 
@@ -67,13 +74,46 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
     private String fileName = "EKG";
 
     private BluetoothLeService bluetoothLeService;
-
     private ArrayList<ArrayList<BluetoothGattCharacteristic>> gattCharacteristics = new ArrayList<ArrayList<BluetoothGattCharacteristic>>();
-
     private BluetoothGattCharacteristic notifyCharacteristic;
 
     private static RWavelet rWavelet;
 
+    //Part of Signal Processing
+    private SampleData sampleData;
+    private int[] sampleECGData = SampleData.generateData(4);
+
+    //Make a data processing container
+    private ArrayList<Integer> processedECGData = new ArrayList<Integer>();
+    private ArrayList<Double> processedECGTime = new ArrayList<Double>();
+
+    int second;
+    private long startTime = 0;
+    private double theTime;
+
+    //It's a goAsync part
+    BroadcastReceiver.PendingResult result;
+    boolean asyncTask = false;
+
+    //Boolean to Process the Data.
+    boolean process = false;
+    boolean unprocess = true;
+
+    //Initialize TextView
+    private TextView HR;
+    private TextView RR;
+    private TextView Percentage;
+
+    private final int REQUEST_CODE_PICK_DIR = 1;
+    private final int REQUEST_CODE_PICK_FILE = 2;
+    String newFile  = "";
+
+    private ArrayList<Integer> dataInput = new ArrayList<Integer>();
+    private ArrayList<Double> timeInput = new ArrayList<Double>();
+
+    private String varString = "";
+    private Double kthr = 0.3;
+    private Integer krr = 36;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -93,28 +133,43 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         }
     };
 
-    //Part of Signal Processing
-    private SampleData sampleData;
-    private int[] sampleECGData = SampleData.generateData(4);
+    private class BackgroundOpen extends AsyncTask<Object,int[],ArrayList<Integer>>{
 
-    //Make a data processing container
-    private ArrayList<Integer> processedECGData = new ArrayList<Integer>();
-    private ArrayList<Double> processedECGTime = new ArrayList<Double>();
-
-    int second;
-    private long startTime = 0;
-    private double theTime;
-
-    //It's a goAsync part
-    BroadcastReceiver.PendingResult result;
-
-    //Boolean to Process the Data.
-    boolean process = false;
-    boolean unprocess = true;
-
-    //Initialize TextView
-    private TextView HR;
-    private TextView RR;
+        @Override
+        protected ArrayList<Integer> doInBackground(Object... objects) {
+            final String newFile = (String) objects[0];
+            if (newFile.indexOf('/')==0){
+                File file = new File (newFile);
+                loadFile(file);
+                ArrayList<Integer> ecg = new ArrayList<Integer>();
+                ArrayList<Double> time = new ArrayList<Double>();
+                int dataLength = dataInput.size();
+                recordFile("record");
+                for(int i = 0; i < dataInput.size();i++){
+                    final int finalI = i;
+                    final double percent = ((double)finalI/dataLength)*100;
+                    Log.d("Debugging: ",String.format("%.2f",percent)+"|"+String.valueOf(finalI)+"/"+String.valueOf(dataLength));
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            graphIt(String.valueOf(dataInput.get(finalI)));
+                            Percentage.setText(" Process: "+ String.format("%.2f",percent)+"%");
+                        }
+                    });
+                    ecg.add(dataInput.get(i));
+                    time.add(timeInput.get(i));
+                    if(ecg.size() >= 1000 || i == dataLength - 1){
+                        new SignalProcessing().execute(ecg, time);
+                        ecg = new ArrayList<Integer>();
+                        time = new ArrayList<Double>();
+                        //delayProcess(4);
+                    }
+                }
+                recordFile("stop");
+            }
+            return null;
+        }
+    }
 
     @SuppressLint("StaticFieldLeak")
     private class SignalProcessing extends AsyncTask<Object,int[],ArrayList<Integer>>{
@@ -140,9 +195,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
 
             if(data.size() > 10) {
                 //Part of Wavelets
-                rWavelet = new RWavelet(time, data);
-                //List<Double> a1 = rWavelet.getWaveletsFirstTrend();
-                //List<Double> d1 = rWavelet.getWaveletsFirstFluctuation();
+                rWavelet = new RWavelet(time, data, kthr, krr);
                 List<Double> d4 = rWavelet.getD4();
                 List<Integer> resampleECG = rWavelet.getResampleECG();
                 List<Double> resampleTime = rWavelet.getResampledTime();
@@ -189,8 +242,9 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                 }
             });
 
-
-            result.finish();
+            if(asyncTask) {
+                result.finish();
+            }
             return data;
         }
 
@@ -245,6 +299,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                                 startTime = System.currentTimeMillis();
                                 if(processedECGData.size() > 0) {
                                     result = goAsync();
+                                    asyncTask = true;
                                     new SignalProcessing().execute(processedECGData, processedECGTime);
                                     Log.d("TheData Input", String.valueOf(processedECGData.size()));
                                 }
@@ -266,7 +321,6 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         ecgGraph.appendData(new DataPoint(graph2LastXValue, Double.parseDouble(item)), autoScrollX, 1000);
     }
 
-    // Connect the GATT Servive
     private void connectGattServices(List<BluetoothGattService> gattServices) {
         if(gattServices == null) return;
         String uuid = null;
@@ -281,8 +335,6 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                 charas.add(gattCharacteristic);
                 uuid = gattCharacteristic.getUuid().toString();
 
-                //My BLE RX_TX is 0000ffe1-0000-1000-8000-00805f9b34fb
-                //0000dfb1-0000-1000-8000-00805f9b34fb
                 if(uuid.equals("0000ffe1-0000-1000-8000-00805f9b34fb")){
                     notifyCharacteristic = gattCharacteristic;
                     bluetoothLeService.setCharacteristicNotification(notifyCharacteristic,true);
@@ -316,9 +368,9 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,WindowManager.LayoutParams.FLAG_FULLSCREEN);
         this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        setContentView(R.layout.main_qt);
+        setContentView(R.layout.main_activity);
 
-        DrawerLayout drawerLayout = findViewById(R.id.main_qt_layout);
+        DrawerLayout drawerLayout = findViewById(R.id.main_activity);
 
         graphInit();
 
@@ -336,10 +388,15 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         HR.setMovementMethod(new ScrollingMovementMethod());
         RR = (TextView)findViewById(R.id.rr_interval);
         RR.setMovementMethod(new ScrollingMovementMethod());
+        Percentage = (TextView)findViewById(R.id.percentage);
+        Percentage.setMovementMethod(new ScrollingMovementMethod());
         HR.setText(" HR: ");
         RR.setText(" RR: ");
+        Percentage.setText(" Process: ");
         HR.setVisibility(View.INVISIBLE);
         RR.setVisibility(View.INVISIBLE);
+        Percentage.setVisibility(View.INVISIBLE);
+
     }
 
     private void graphInit() {
@@ -350,7 +407,6 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         ecgGraph.setThickness(1);
         ecgGraph.setColor(Color.YELLOW);
 
-        //graphView.getViewport().setScalable(true);
         graphView.getViewport().setScrollable(true);
 
         graphView.getGridLabelRenderer().setHorizontalLabelsVisible(false);
@@ -360,7 +416,6 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         graphView.getViewport().setDrawBorder(false);
 
         graphView.getGridLabelRenderer().setGridColor(Color.WHITE);
-
 
         minX = 0;maxX = 1000;minY = 100;maxY = 500;
 
@@ -385,8 +440,6 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         double tickLengthX = 2;
 
         makeSecondTickX(centerY, minX, maxX, tickWidthX, tickLengthX);
-
-        //new SignalProcessing().execute(sampleECGData);
     }
 
     private void makeSecondTickY(double[] center, double minY, double maxY, double tickWidth, double tickLength) {
@@ -507,42 +560,10 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
             if(unprocess){
                 Toast.makeText(getApplicationContext(),"Must be processing!",Toast.LENGTH_SHORT).show();
             }else {
-                //theTime = System.currentTimeMillis() / 1000.00000;
-                record = true;
-                processedECGData = new ArrayList<Integer>();
-
-                //Try make a new file in the Internal
-                File sdCard = Environment.getExternalStorageDirectory();
-                File dir = new File(sdCard.getAbsolutePath());
-                File file2 = new File(dir, "/" + fileName + "_Wavelets.txt");
-                time = 0.000;
-
-                Log.d("File is", String.valueOf(file2)+".txt");
-
-                try {
-                    fw2 = new FileWriter(file2, true);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-
-                Toast.makeText(getApplicationContext(), "Recording: "+fileName, Toast.LENGTH_SHORT).show();
+                recordFile("record");
             }
         } else if (id == R.id.stoprecord) {
-            record = false;
-            startTime = 0;
-            if(fw2 != null) {
-                try {
-                    fw2.flush();
-                    fw2.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                Toast.makeText(getApplicationContext(),"Stopped",Toast.LENGTH_SHORT).show();
-            }else{
-                Toast.makeText(getApplicationContext(),"Can't be stopped",Toast.LENGTH_SHORT).show();
-            }
-
-
+            recordFile("stop");
         } else if (id == R.id.name_edit) {
             openDialog();
         } else if (id == R.id.process){
@@ -554,7 +575,6 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                 theTime = System.currentTimeMillis() / 1000.00000;
                 Toast.makeText(getApplicationContext(),"Processing data...",Toast.LENGTH_SHORT).show();
             }
-
             else if (!unprocess){
                 process = false;
                 unprocess = true;
@@ -562,9 +582,13 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                 RR.setVisibility(View.INVISIBLE);
                 Toast.makeText(getApplicationContext(),"Stop processing data...",Toast.LENGTH_SHORT).show();
             }
+        } else if(id == R.id.open){
+            browseFile();
+        } else if(id == R.id.variableinput){
+            varDialog();
         }
 
-        DrawerLayout drawer = findViewById(R.id.main_qt_layout);
+        DrawerLayout drawer = findViewById(R.id.main_activity);
         drawer.closeDrawer(GravityCompat.START);
         return true;
     }
@@ -574,9 +598,132 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         nameDialog.show(getSupportFragmentManager(),"Name Dialog");
     }
 
+    public void varDialog(){
+        VarDialog varDialog = new VarDialog();
+        varDialog.show(getSupportFragmentManager(),"Variable Dialog");
+    }
+
     @Override
     public void applyText(String namefile) {
         fileName = namefile;
         Toast.makeText(getApplicationContext(),"Your file name is "+fileName,Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void applyVar(String varValue){
+        varString = varValue;
+        String[] vars = varString.split(";");
+        if(vars.length == 2) {
+            Toast.makeText(getApplicationContext(), "THR: " + vars[0] + " RR: " + vars[1], Toast.LENGTH_SHORT).show();
+            kthr = Double.parseDouble(vars[0]);
+            krr  = Integer.parseInt(vars[1]);
+        }else{
+            Toast.makeText(getApplicationContext(), "Gunakan tanda ; untuk memisahkan!", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public void recordFile(String input){
+        if(input.equals("record")) {
+            record = true;
+            processedECGData = new ArrayList<Integer>();
+
+            //Try make a new file in the Internal
+            File sdCard = Environment.getExternalStorageDirectory();
+            File dir = new File(sdCard.getAbsolutePath());
+            File file2 = new File(  dir, "/" + fileName + "_Wavelets_"+
+                                    String.valueOf(kthr)+"-"+String.valueOf(krr)+".txt");
+            time = 0.000;
+
+            Log.d("File is", String.valueOf(file2) + ".txt");
+
+            try {
+                fw2 = new FileWriter(file2, true);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            //Toast.makeText(getApplicationContext(), "Recording: " + fileName, Toast.LENGTH_SHORT).show();
+        }
+        if(input.equals("stop")) {
+            record = false;
+            startTime = 0;
+            if (fw2 != null) {
+                try {
+                    fw2.flush();
+                    fw2.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                //Toast.makeText(getApplicationContext(), "Stopped", Toast.LENGTH_SHORT).show();
+            } else {
+                //Toast.makeText(getApplicationContext(), "Can't be stopped", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    public void browseFile(){
+        final Activity activityForButton = this;
+        Log.d("Activity", "Start Browsing");
+        Intent fileExplorerIntent = new Intent(FileBrowserActivity.INTENT_ACTION_SELECT_FILE,null,
+                activityForButton,
+                FileBrowserActivity.class
+        );
+        startActivityForResult(
+                fileExplorerIntent,
+                REQUEST_CODE_PICK_FILE
+        );
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data){
+        if(requestCode == REQUEST_CODE_PICK_FILE){
+            if(resultCode == RESULT_OK){
+                newFile = data.getStringExtra(FileBrowserActivity.returnFileParameter);
+                Toast.makeText(this, "Memproses: "+newFile, Toast.LENGTH_SHORT).show();
+                Percentage.setVisibility(View.VISIBLE);
+                new BackgroundOpen().execute(newFile);
+            }else{
+                Toast.makeText(this,"Tidak mendapatkan file", Toast.LENGTH_LONG).show();
+            }
+        }
+        super.onActivityResult(requestCode,resultCode,data);
+    }
+
+    public void loadFile(File file) {
+        FileInputStream fis = null;
+        try {
+            fis = new FileInputStream(file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+
+        InputStreamReader isr = new InputStreamReader(fis);
+        BufferedReader br = new BufferedReader(isr);
+
+        int dataLength=0;
+        try {
+            while ((br.readLine()) != null) {
+                dataLength++;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            fis.getChannel().position(0);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        String sCurrentLine;
+        String[] characters = new String[dataLength];
+        int i = 0;
+        try {
+            while ((sCurrentLine = br.readLine())!=null) {
+                String[] arr = sCurrentLine.split("\t");
+                timeInput.add(Double.parseDouble(arr[0]));
+                dataInput.add(Integer.parseInt(arr[1]));
+                i++;
+            }
+        } catch (IOException e) {e.printStackTrace();}
     }
 }

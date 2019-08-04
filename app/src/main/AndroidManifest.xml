@@ -30,6 +30,9 @@
             android:name="medicalin.ekg.Main"
             android:theme="@style/Theme.AppCompat.NoActionBar">
         </activity>
+        <activity
+            android:name="medicalin.ekg.FileBrowserActivity">
+        </activity>
         <service android:name="medicalin.ekg.BluetoothLeService" android:enabled="true"/>
     </application>
 </manifest>

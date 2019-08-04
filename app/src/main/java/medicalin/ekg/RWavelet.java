@@ -25,7 +25,7 @@ public class RWavelet {
     private double rrAvr,hr;
     private double lastRR, lastHR;
 
-    public RWavelet(ArrayList<Double>time, ArrayList<Integer> ecg){
+    public RWavelet(ArrayList<Double>time, ArrayList<Integer> ecg, double kthr, int krr){
         ann = new ArrayList<Integer>();
 
         if(ecg.size() < 10) return;
@@ -54,7 +54,7 @@ public class RWavelet {
         downSamplingTime = new DownSamplingTime(time, 2);
         resampleTime = downSamplingTime.getOutput();
 
-        double thr = 0.3*getMaxValue(process);
+        double thr = kthr*getMaxValue(process);
 
         List<Integer> ir = new ArrayList<Integer>();
         for(int i =0; i<process.size()-1;i++){
@@ -62,11 +62,11 @@ public class RWavelet {
             ann.add(0);
         }
 
-        removeConsecutiveR = new RemoveConsecutiveR(resampleECG,ir);
+        removeConsecutiveR = new RemoveConsecutiveR(resampleECG,ir,krr);
         ir = new ArrayList<Integer>();
         ir = removeConsecutiveR.getIrs();
 
-        searchBack = new SearchBack(resampleECG,process,ir,thr);
+        searchBack = new SearchBack(resampleECG,process,ir,thr,krr);
         List<Integer> irsb = new ArrayList<Integer>();
         irsb = searchBack.getIrsb();
 

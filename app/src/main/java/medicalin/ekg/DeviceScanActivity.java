@@ -69,10 +69,12 @@ public class DeviceScanActivity extends ListActivity {
         if(!scanning){
             menu.findItem(R.id.menu_stop).setVisible(false);
             menu.findItem(R.id.menu_scan).setVisible(true);
+            menu.findItem(R.id.menu_prc).setVisible(true);
             menu.findItem(R.id.menu_refresh).setActionView(null);
         }else{
             menu.findItem(R.id.menu_stop).setVisible(true);
             menu.findItem(R.id.menu_scan).setVisible(false);
+            menu.findItem(R.id.menu_prc).setVisible(false);
             menu.findItem(R.id.menu_refresh).setActionView(R.layout.actionbar_indeterminate_progress);
         }
         return true;
@@ -87,6 +89,16 @@ public class DeviceScanActivity extends ListActivity {
                 break;
             case R.id.menu_stop:
                 scanLeDevice(false);
+                break;
+            case R.id.menu_prc:
+                final Intent intent = new Intent(this, Main.class);
+
+                if(scanning){
+                    bluetoothAdapter.stopLeScan(leScanCallback);
+                    scanning = false;
+                }
+
+                startActivity(intent);
                 break;
         }
         return true;
