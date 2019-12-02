@@ -3,21 +3,17 @@ package medicalin.ekg;
 import java.util.ArrayList;
 import java.util.List;
 
-import medicalin.ekg.Wavelets.DaubWaveTrans;
-import medicalin.ekg.Wavelets.DownSampling;
-import medicalin.ekg.Wavelets.DownSamplingTime;
-import medicalin.ekg.Wavelets.RemoveConsecutiveR;
-import medicalin.ekg.Wavelets.SearchBack;
+import medicalin.ekg.DwtSrc.DWT;
+import medicalin.ekg.DwtSrc.Wavelet;
 
 public class RWavelet {
     private static DownSampling downSampling;
-    private static DownSamplingTime downSamplingTime;
     private static RemoveConsecutiveR removeConsecutiveR;
     private static SearchBack searchBack;
     private static double[] out;
     private static double[] dt;
     private static List<Double> process;
-    private static List<Integer> resampleECG;
+    private static List<Double> resampleECG;
     private static List<Double> resampleTime;
     private static List<Integer> ann;
     private static List<Double> db4;
@@ -25,7 +21,7 @@ public class RWavelet {
     private double rrAvr,hr;
     private double lastRR, lastHR;
 
-    public RWavelet(ArrayList<Double>time, ArrayList<Integer> ecg, double kthr, int krr){
+    public RWavelet(ArrayList<Double>time, ArrayList<Integer> ecg, double kthr, int krr) throws Exception {
         ann = new ArrayList<Integer>();
 
         if(ecg.size() < 10) return;
@@ -35,24 +31,24 @@ public class RWavelet {
             dt[i] = (double)ecg.get(i);
         }
 
-        out = DaubWaveTrans.DaubWaveTrans(dt,1);
+        double[] out = new double[dt.length];
+        out = DWT.transform(dt,Wavelet.Daubechies,4,9, DWT.Direction.forward);
 
         db4 = new ArrayList<Double>();
         for(int i = out.length/2; i<out.length;i++){
             db4.add(out[i]);
         }
 
+        resampleECG = new ArrayList<Double>();
         process = new ArrayList<Double>();
         for(int i = out.length/2; i<out.length;i++){
             if(out[i] < 0) process.add(-out[i]);
             else process.add(out[i]);
+            resampleECG.add(out[i]);
         }
 
-        downSampling = new DownSampling(ecg,2);
-        resampleECG = downSampling.getOutput();
-
-        downSamplingTime = new DownSamplingTime(time, 2);
-        resampleTime = downSamplingTime.getOutput();
+        downSampling = new DownSampling(time, 2);
+        resampleTime = downSampling.getOutput();
 
         double thr = kthr*getMaxValue(process);
 
@@ -119,7 +115,7 @@ public class RWavelet {
         return resampleTime;
     }
 
-    public List<Integer> getResampleECG(){
+    public List<Double> getResampleECG(){
         return resampleECG;
     }
 

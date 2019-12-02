@@ -15,9 +15,7 @@ import android.graphics.Color;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.support.design.widget.NavigationView;
 import android.support.v4.view.GravityCompat;
 import android.support.v4.widget.DrawerLayout;
@@ -45,6 +43,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+
+import medicalin.ekg.DwtSrc.DWT;
+import medicalin.ekg.DwtSrc.Wavelet;
 
 public class Main extends AppCompatActivity implements NavigationView.OnNavigationItemSelectedListener, NameDialog.NameDialogListener, VarDialog.VarDialogListener{
     private final static String TAG = Main.class.getSimpleName();
@@ -55,7 +57,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
     private String deviceAddress;
     private String deviceName;
 
-    FileWriter fw2;
+    FileWriter fw,fwa,fwb,fwc,fw2;
     String printFormat;
 
     GraphView graphView;
@@ -63,7 +65,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
     private double graph2LastXValue = 5d;
 
     private boolean autoScrollX = true;
-    private int xView = 1000;
+    private int xView = 1024;
     private double minX,maxX,minY,maxY;
 
     private boolean connected = false;
@@ -133,6 +135,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         }
     };
 
+    @SuppressLint("StaticFieldLeak")
     private class BackgroundOpen extends AsyncTask<Object,int[],ArrayList<Integer>>{
 
         @Override
@@ -144,30 +147,151 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                 ArrayList<Integer> ecg = new ArrayList<Integer>();
                 ArrayList<Double> time = new ArrayList<Double>();
                 int dataLength = dataInput.size();
-                recordFile("record");
-                for(int i = 0; i < dataInput.size();i++){
-                    final int finalI = i;
+
+                FileWriter fwa = makeNewFile("Wikipedia");
+                FileWriter fwb = makeNewFile("Buku");
+                FileWriter fwc = makeNewFile("Matlab");
+
+                for(int ij = 0; ij < dataInput.size();ij++){
+                    final int finalI = ij;
                     final double percent = ((double)finalI/dataLength)*100;
-                    Log.d("Debugging: ",String.format("%.2f",percent)+"|"+String.valueOf(finalI)+"/"+String.valueOf(dataLength));
+                    Log.d("Percentage ",String.format("%.2f",percent)+"|"+String.valueOf(finalI)+"/"+String.valueOf(dataLength));
                     runOnUiThread(new Runnable() {
+                        @SuppressLint("SetTextI18n")
                         @Override
                         public void run() {
                             graphIt(String.valueOf(dataInput.get(finalI)));
-                            Percentage.setText(" Process: "+ String.format("%.2f",percent)+"%");
+                            Percentage.setText(" Process: "+ String.format(Locale.getDefault(),"%.2f",percent)+"%");
                         }
                     });
-                    ecg.add(dataInput.get(i));
-                    time.add(timeInput.get(i));
-                    if(ecg.size() >= 1000 || i == dataLength - 1){
-                        new SignalProcessing().execute(ecg, time);
+                    ecg.add(dataInput.get(ij));
+                    time.add(timeInput.get(ij));
+
+
+                    try {
+                        Thread.currentThread();
+                        Thread.sleep(5);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+
+
+                    if(ecg.size() >= 1024){
+                        processData(ecg,time,Wavelet.Daub1, fwa);
+                        processData(ecg,time,Wavelet.Daub2, fwb);
+                        processData(ecg,time,Wavelet.Daub3, fwc);
                         ecg = new ArrayList<Integer>();
                         time = new ArrayList<Double>();
-                        //delayProcess(4);
                     }
+
+
                 }
-                recordFile("stop");
+
+                stopSave(fwa);
+                stopSave(fwb);
+                stopSave(fwc);
             }
             return null;
+        }
+
+        private void processData(ArrayList<Integer> ecg, ArrayList<Double> time, Wavelet wavelet, FileWriter fileWriter){
+            double[] dt = new double[ecg.size()];
+            for(int p = 0; p < ecg.size(); p++) dt[p] = ecg.get(p);
+
+            double[][] wvlt = new double[dt.length/2][10];
+            double[] resampleECG = new double[dt.length/2];
+            int[][] ann = new int[dt.length/2][10];
+
+            for (int i = 1; i <= 10; i++) {
+
+                double[] workspace = new double[dt.length];
+                try {
+                    workspace = DWT.transform(dt, wavelet, i, 9, DWT.Direction.forward);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+
+                for (int j = 0; j < dt.length / 2; j++) {
+                    wvlt[j][i - 1] = workspace[(dt.length / 2) + j];
+                    resampleECG[j] = workspace[j];
+                    ann[j][i - 1] = 0;
+                }
+
+                double[] waveletArr = getRow(wvlt, i - 1);
+                List<Double> waveletSignal = toList(waveletArr);
+
+                double thr = kthr * getMaxValue(waveletSignal);
+
+                List<Integer> ir = new ArrayList<Integer>();
+                for (int h = 0; h < waveletSignal.size() - 1; h++) {
+                    if (waveletSignal.get(h) > thr) ir.add(h);
+                }
+
+                RemoveConsecutiveR removeConsecutiveR = new RemoveConsecutiveR(toList(resampleECG), ir, krr);
+                ir = new ArrayList<Integer>();
+                ir = removeConsecutiveR.getIrs();
+
+                SearchBack searchBack = new SearchBack(toList(resampleECG), waveletSignal, ir, thr, krr);
+                List<Integer> irsb = new ArrayList<Integer>();
+                irsb = searchBack.getIrsb();
+
+                if (irsb != null) {
+                    for (int l = 0; l < irsb.size() - 1; l++) {
+                        ir.add(irsb.get(l));
+                    }
+                }
+
+                for (int o = 0; o < ir.size(); o++) {
+                    ann[ir.get(o)][i - 1] = 1;
+                }
+            }
+
+            DownSampling downSampling = new DownSampling(time, 2);
+            List<Double> resampleTime = downSampling.getOutput();
+            Log.d("Data Length of ",String.valueOf(wavelet)+" "+String.valueOf(wvlt.length));
+
+            for (int i = 0; i < wvlt.length; i++) {
+                try {
+
+                    /*String printFormat = String.format("%f",db1[i]);*/
+                    String signal = String.format(Locale.getDefault(),"%f\t%f\t",resampleTime.get(i), resampleECG[i]).replace(',','.');;
+                    String wavelets = String.format(Locale.getDefault(),"%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f",
+                            wvlt[i][0],wvlt[i][1],wvlt[i][2],wvlt[i][3],wvlt[i][4],
+                            wvlt[i][5],wvlt[i][6],wvlt[i][7],wvlt[i][8],wvlt[i][9]).replace(',','.');;
+                    String annotation = String.format(Locale.getDefault(),"\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d",
+                            ann[i][0],ann[i][1],ann[i][2],ann[i][3],ann[i][4],
+                            ann[i][5],ann[i][6],ann[i][7],ann[i][8],ann[i][9]).replace(',','.');;
+                    fileWriter.append(signal).append(wavelets).append(annotation).append("\n");
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        private double[] getRow(double[][] array, int index){
+            double[] row = new double[array.length];
+            for(int i=0; i<row.length; i++){
+                row[i] = array[i][index];
+            }
+            return row;
+        }
+
+        private double getMaxValue(List<Double> numbers){
+            double maxValue = numbers.get(0);
+            for(int i=1;i < numbers.size();i++){
+                if(numbers.get(i) > maxValue){
+                    maxValue = numbers.get(i);
+                }
+            }
+            return maxValue;
+        }
+
+        private List<Double> toList(double[] array) {
+            List<Double> list = new ArrayList<>();
+            for (double t : array) {
+                list.add(t);
+            }
+            return list;
         }
     }
 
@@ -186,6 +310,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
             //Parse the input of AsyncTask, ECG data in 0 and Time in 1
             ArrayList<Integer> data = (ArrayList<Integer>) integers[0];
             ArrayList<Double> time = (ArrayList<Double>) integers[1];
+            Log.d("Signal Processing ","Processing ");
 
             //If data size is less than 10,cancel AsynTask by return the data
             if(data.size() < 10) return data;
@@ -195,9 +320,13 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
 
             if(data.size() > 10) {
                 //Part of Wavelets
-                rWavelet = new RWavelet(time, data, kthr, krr);
+                try {
+                    rWavelet = new RWavelet(time, data, kthr, krr);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
                 List<Double> d4 = rWavelet.getD4();
-                List<Integer> resampleECG = rWavelet.getResampleECG();
+                List<Double> resampleECG = rWavelet.getResampleECG();
                 List<Double> resampleTime = rWavelet.getResampledTime();
                 List<Integer> annRPeak = rWavelet.getAnnotation();
                 int datalength = 0;
@@ -210,7 +339,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
                 if (record) {
                     for (int i = 0; i < datalength; i++) {
                         try {
-                            printFormat = String.format("%.5f\t%d\t%.5f\t%d", resampleTime.get(i), resampleECG.get(i), d4.get(i), annRPeak.get(i));
+                            printFormat = String.format(Locale.getDefault(),"%.5f\t%d\t%.5f\t%d", resampleTime.get(i), resampleECG.get(i), d4.get(i), annRPeak.get(i));
                             printFormat = printFormat.replace(',','.');
                             fw2.append(printFormat).append("\n");
                         } catch (IOException e) {
@@ -227,12 +356,13 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
             final double finalHr = hr;
             final double finalRr = rr;
             runOnUiThread(new Runnable() {
+                @SuppressLint("SetTextI18n")
                 @Override
                 public void run() {
 
                     if(finalHr != 0) {
-                        RR.setText(" RR: " + String.format("%.3f", finalRr));
-                        HR.setText(" HR: " + String.format("%.0f", finalHr));
+                        RR.setText(" RR: " + String.format(Locale.getDefault(),"%.3f", finalRr));
+                        HR.setText(" HR: " + String.format(Locale.getDefault(),"%.0f", finalHr));
                         if (finalHr > 100 || finalHr < 60) {
                             HR.setTextColor(Color.RED);
                         } else {
@@ -318,7 +448,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         } else {
             graph2LastXValue += 1d;
         }
-        ecgGraph.appendData(new DataPoint(graph2LastXValue, Double.parseDouble(item)), autoScrollX, 1000);
+        ecgGraph.appendData(new DataPoint(graph2LastXValue, Double.parseDouble(item)), autoScrollX, 1024);
     }
 
     private void connectGattServices(List<BluetoothGattService> gattServices) {
@@ -417,7 +547,7 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
 
         graphView.getGridLabelRenderer().setGridColor(Color.WHITE);
 
-        minX = 0;maxX = 1000;minY = 100;maxY = 500;
+        minX = 0;maxX = 1024;minY = 100;maxY = 500;
 
         makeBorder(graphView,minX,maxX,minY,maxY);
 
@@ -535,14 +665,12 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         bluetoothLeService = null;
 
         //If crash and recording, try to close the file writer
-        if(fw2 != null) {
-            try {
-                fw2.flush();
-                fw2.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
+        stopSave(fw);
+        stopSave(fwa);
+        stopSave(fwb);
+        stopSave(fwc);
+        stopSave(fw2);
+
     }
 
     @Override
@@ -622,41 +750,47 @@ public class Main extends AppCompatActivity implements NavigationView.OnNavigati
         }
     }
 
+    public FileWriter makeNewFile(String filenm){
+        //Try make a new file in the Internal
+        File sdCard = Environment.getExternalStorageDirectory();
+        File dir = new File(sdCard.getAbsolutePath());
+        File file2 = new File(  dir, "/" + fileName +"_"+ filenm +"_Wavelets_"+
+                String.valueOf(kthr)+"-"+String.valueOf(krr)+".txt");
+        time = 0.000;
+
+        Log.d("File is", String.valueOf(file2) + ".txt");
+
+        try {
+            fw = new FileWriter(file2, true);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return fw;
+    }
+
+    public void stopSave(FileWriter fw){
+        if (fw != null) {
+            try {
+                fw.flush();
+                fw.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
     public void recordFile(String input){
         if(input.equals("record")) {
             record = true;
             processedECGData = new ArrayList<Integer>();
-
-            //Try make a new file in the Internal
-            File sdCard = Environment.getExternalStorageDirectory();
-            File dir = new File(sdCard.getAbsolutePath());
-            File file2 = new File(  dir, "/" + fileName + "_Wavelets_"+
-                                    String.valueOf(kthr)+"-"+String.valueOf(krr)+".txt");
-            time = 0.000;
-
-            Log.d("File is", String.valueOf(file2) + ".txt");
-
-            try {
-                fw2 = new FileWriter(file2, true);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            //Toast.makeText(getApplicationContext(), "Recording: " + fileName, Toast.LENGTH_SHORT).show();
+            fw2 = makeNewFile(fileName);
         }
         if(input.equals("stop")) {
             record = false;
             startTime = 0;
-            if (fw2 != null) {
-                try {
-                    fw2.flush();
-                    fw2.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                //Toast.makeText(getApplicationContext(), "Stopped", Toast.LENGTH_SHORT).show();
-            } else {
-                //Toast.makeText(getApplicationContext(), "Can't be stopped", Toast.LENGTH_SHORT).show();
-            }
+            Log.d("Recording ", "is Stopping");
+            stopSave(fw2);
         }
     }
 
